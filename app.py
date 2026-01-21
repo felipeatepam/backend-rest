@@ -17,32 +17,24 @@ CORS(app)  # Enable CORS for frontend integration
 
 # Data model
 class Record(db.Model):
-    """Database model for records."""
-
     __tablename__ = 'records'
 
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(255), nullable=False)
     message = db.Column(db.Text, nullable=False)
     note = db.Column(db.Text, nullable=True)
-    # Use timezone-aware datetimes (UTC)
-    created_at = db.Column(db.DateTime(timezone=True),
-                           default=lambda: datetime.now(timezone.utc))
-    updated_at = db.Column(db.DateTime(timezone=True),
-                           default=lambda: datetime.now(timezone.utc),
-                           onupdate=lambda: datetime.now(timezone.utc))
+    created_at = db.Column(db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = db.Column(db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     def to_dict(self):
-        """Convert object to dictionary for JSON serialization."""
+        """Formatea la salida según ISO 8601 (UTC Z)."""
         return {
             'id': self.id,
             'name': self.name,
             'message': self.message,
             'note': self.note,
-            'created_at': (self.created_at.isoformat()
-                           if self.created_at else None),
-            'updated_at': (self.updated_at.isoformat()
-                           if self.updated_at else None)
+            'createdAt': self.created_at.strftime('%Y-%m-%dT%H:%M:%S.%fZ') if self.created_at else None,
+            'updatedAt': self.updated_at.strftime('%Y-%m-%dT%H:%M:%S.%fZ') if self.updated_at else None
         }
 
     def update_from_dict(self, data):
@@ -58,6 +50,37 @@ class Record(db.Model):
 
 
 # API endpoints
+@app.route('/api/records', methods=['GET'])
+def get_records():
+    """Retorna todos los registros con la estructura requerida por el frontend."""
+    try:
+        records = Record.query.all()
+        return jsonify({
+            'records': [r.to_dict() for r in records],
+            'total': len(records)
+        }), 200
+    except SQLAlchemyError as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/records', methods=['POST'])
+def create_record():
+    """Crea un nuevo registro validando campos obligatorios."""
+    data = request.get_json()
+    if not data or not data.get('name') or not data.get('message'):
+        return jsonify({'error': 'Name and message are required'}), 400
+
+    try:
+        new_record = Record(
+            name=data.get('name').strip(),
+            message=data.get('message').strip(),
+            note=data.get('note').strip() if data.get('note') else None
+        )
+        db.session.add(new_record)
+        db.session.commit()
+        return jsonify(new_record.to_dict()), 201
+    except SQLAlchemyError as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/')
 def health_check():
